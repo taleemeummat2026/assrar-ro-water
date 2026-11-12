@@ -35,7 +35,7 @@ adminRouter.get('/dashboard', anyAdmin, async (req, res) => {
     duesByCustomer(),
     jarBalances(),
     db.one("SELECT COUNT(*) AS n FROM requests WHERE status = 'pending'"),
-    db.one("SELECT COUNT(*) AS n FROM enquiries WHERE status = 'new'"),
+    db.one("SELECT (SELECT COUNT(*) FROM enquiries WHERE status = 'new') + (SELECT COUNT(*) FROM customers WHERE signup_status = 'pending') AS n, (SELECT COUNT(*) FROM customers WHERE signup_status = 'pending') AS signups"),
     db.one('SELECT COUNT(*) AS total, SUM(active) AS active FROM customers'),
     db.one("SELECT SUM(status = 'pending') AS pending, SUM(status = 'assigned' AND event_date >= ?) AS upcoming, SUM(status IN ('pending','assigned') AND event_date = ?) AS today FROM event_orders", [date, date]),
   ]);
@@ -71,6 +71,7 @@ adminRouter.get('/dashboard', anyAdmin, async (req, res) => {
     outstanding: { total: [...dues.values()].filter((d) => d > 0).reduce((s, d) => s + d, 0), customers: [...dues.values()].filter((d) => d > 0).length },
     pendingRequests: Number(pendingRequests.n),
     newEnquiries: Number(newEnquiries.n),
+    pendingSignups: Number(newEnquiries.signups),
     byDeliveryBoy: [...byBoy.values()],
     // Missed / not-updated customers, highlighted at day end.
     notUpdated: view.rows.filter((r) => r.kind === 'pending' || r.kind === 'missed').map((r) => ({ customerId: r.customerId, name: r.name, area: r.area, deliveryBoyName: r.deliveryBoyName })),

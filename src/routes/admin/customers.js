@@ -56,7 +56,8 @@ async function resolveRoute(input, exec) {
 }
 
 /** Creates a customer with the next Customer ID (RO-0001, RO-0002 …). */
-export async function createCustomer(input, actor) {
+/** `pending: true` = sign-up from the app: not delivered until the office approves it. */
+export async function createCustomer(input, actor, { pending = false } = {}) {
   const today = todayISO();
   return tx(async (t) => {
     const company = await t.one('SELECT * FROM company WHERE id = 1');
@@ -84,8 +85,13 @@ export async function createCustomer(input, actor) {
       ],
     );
     if (input.enquiryId) await t.q("UPDATE enquiries SET status = 'converted', customer_id = ? WHERE id = ?", [id, input.enquiryId]);
-    await notify(id, 'info', `Welcome to ${company?.name ?? 'our water service'}!`, `Your Customer ID is ${id}. You can see daily deliveries, jar balance and bills in this app.`, t);
-    await logActivity(actor, 'customer.created', 'customer', id, { name: input.name, mobile: input.mobile }, t);
+    if (pending) {
+      await t.q("UPDATE customers SET active = 0, signup_status = 'pending', notes = ? WHERE id = ?", [input.notes || null, id]);
+      await notify(id, 'info', 'Request received', `Your Customer ID is ${id}. Our team will call you to confirm your plan, deposit and the day deliveries start.`, t);
+    } else {
+      await notify(id, 'info', `Welcome to ${company?.name ?? 'our water service'}!`, `Your Customer ID is ${id}. You can see daily deliveries, jar balance and bills in this app.`, t);
+    }
+    await logActivity(actor, pending ? 'customer.signed_up' : 'customer.created', 'customer', id, { name: input.name, mobile: input.mobile }, t);
     return id;
   });
 }
@@ -96,6 +102,7 @@ customersRouter.get('/', canRead, async (req, res) => {
       q: z.string().trim().max(60).optional(),
       routeId: z.coerce.number().int().optional(),
       active: z.enum(['1', '0', 'all']).default('1'),
+      signup: z.enum(['pending', 'rejected']).optional(),
       page: z.coerce.number().int().min(1).default(1),
       limit: z.coerce.number().int().min(1).max(500).default(50),
     }),
@@ -103,7 +110,10 @@ customersRouter.get('/', canRead, async (req, res) => {
   );
   const where = [];
   const params = [];
-  if (f.active !== 'all') {
+  if (f.signup) {
+    where.push('c.signup_status = ?');
+    params.push(f.signup);
+  } else if (f.active !== 'all') {
     where.push('c.active = ?');
     params.push(Number(f.active));
   }
@@ -226,5 +236,47 @@ customersRouter.patch('/:id', canEdit, async (req, res) => {
     await db.q(`UPDATE customers SET ${set.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`, [...set.map(([, v]) => v), row.id]);
     await logActivity(req.actor, input.active === false ? 'customer.deactivated' : 'customer.updated', 'customer', row.id, Object.fromEntries(set));
   }
+  res.json(mapCustomer(await getCustomerRow(row.id)));
+});
+
+/** Approve an app sign-up: assign route / plan / deposit, and deliveries start. */
+customersRouter.post('/:id/approve', canEdit, async (req, res) => {
+  const input = parse(
+    z
+      .object({ routeId: fields.routeId, startDate: fields.startDate, deposit: fields.deposit, jarsIssued: fields.jarsIssued, ratePerJar: fields.ratePerJar, jarsPerDay: fields.jarsPerDay, product: fields.product })
+      .partial(),
+    req.body,
+  );
+  const row = await getCustomerRow(req.params.id);
+  if (!row) throw notFound('Customer not found');
+  if (row.signup_status === 'approved') throw badRequest('This customer is already approved.');
+  const today = todayISO();
+  const startDate = input.startDate && input.startDate > today ? input.startDate : today;
+  await tx(async (t) => {
+    await t.q(
+      `UPDATE customers SET active = 1, signup_status = 'approved', signup_note = NULL, start_date = ?, joined_on = ?,
+         route_id = COALESCE(?, route_id), deposit = COALESCE(?, deposit), jars_issued = COALESCE(?, jars_issued),
+         rate_per_jar = COALESCE(?, rate_per_jar), jars_per_day = COALESCE(?, jars_per_day), product = COALESCE(?, product)
+       WHERE id = ?`,
+      [startDate, today, input.routeId ?? null, input.deposit ?? null, input.jarsIssued ?? null, input.ratePerJar ?? null, input.jarsPerDay ?? null, input.product ?? null, row.id],
+    );
+    if (input.routeId && !row.route_id) {
+      const n = await t.one('SELECT COALESCE(MAX(route_order), 0) + 1 AS n FROM customers WHERE route_id = ?', [input.routeId]);
+      await t.q('UPDATE customers SET route_order = ? WHERE id = ?', [n.n, row.id]);
+    }
+    await notify(row.id, 'info', 'Connection approved!', `Welcome! Deliveries start on ${startDate}. Your Customer ID is ${row.id}.`, t);
+    await logActivity(req.actor, 'customer.approved', 'customer', row.id, { startDate, routeId: input.routeId }, t);
+  });
+  res.json(mapCustomer(await getCustomerRow(row.id)));
+});
+
+customersRouter.post('/:id/reject', canEdit, async (req, res) => {
+  const { note } = parse(z.object({ note: z.string().trim().max(300).optional() }), req.body);
+  const row = await getCustomerRow(req.params.id);
+  if (!row) throw notFound('Customer not found');
+  if (row.signup_status !== 'pending') throw badRequest('Only new sign-ups waiting for approval can be rejected.');
+  await db.q("UPDATE customers SET signup_status = 'rejected', signup_note = ?, active = 0 WHERE id = ?", [note || null, row.id]);
+  await notify(row.id, 'info', 'Connection request', note || 'Sorry, we cannot start a connection at your address right now. Please call the office for help.');
+  await logActivity(req.actor, 'customer.rejected', 'customer', row.id, { note });
   res.json(mapCustomer(await getCustomerRow(row.id)));
 });

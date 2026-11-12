@@ -58,7 +58,6 @@ const lastMonth = () => dates.addMonths(dates.monthOf(today()), -1);
 
 describe('customer app', () => {
   test('logs in with mobile + OTP', async () => {
-    await api.post('/v1/auth/customer/otp').send({ mobile: '9000000000' }).expect(404);
     await api.post('/v1/auth/customer/otp').send({ mobile: '12' }).expect(422);
     await api.post('/v1/auth/customer/otp').send({ mobile: '9876500001' }).expect(200, { sent: true });
     await api.post('/v1/auth/customer/otp').send({ mobile: '9876500001' }).expect(429); // resend too soon
@@ -494,5 +493,71 @@ describe('push notifications', () => {
     const [[left]] = await pool.query("SELECT COUNT(*) AS n FROM push_tokens WHERE token = 'ExponentPushToken[gone]'");
     assert.equal(Number(left.n), 0);
     await api.delete('/v1/customer/push-token').set(auth('customer')).send({ token: 'ExponentPushToken[cust1]' }).expect(200);
+  });
+});
+
+describe('new customer signs up in the app', () => {
+  let signupToken;
+  let newToken;
+  let newId;
+  const h = (t) => ({ Authorization: `Bearer ${t}` });
+
+  test('any mobile number can log in with OTP; a new one gets a sign-up step', async () => {
+    await api.post('/v1/auth/customer/otp').send({ mobile: '9000000001' }).expect(200);
+    await api.post('/v1/auth/customer/verify').send({ mobile: '9000000001', otp: '0000' }).expect(401);
+    const res = (await api.post('/v1/auth/customer/verify').send({ mobile: '9000000001', otp: '1234' }).expect(200)).body;
+    assert.equal(res.isNew, true);
+    assert.equal(res.customer, null);
+    signupToken = res.token;
+    await api.get('/v1/customer/dashboard').set(h(signupToken)).expect(401); // not a customer yet
+  });
+
+  test('fills in the details → Customer ID, waiting for approval', async () => {
+    await api.post('/v1/auth/customer/register').set(h(signupToken)).send({ name: 'A', address: 'x', area: '' }).expect(422);
+    const res = (
+      await api
+        .post('/v1/auth/customer/register')
+        .set(h(signupToken))
+        .send({ name: 'Naya Grahak', address: 'H.No. 5, Model Town', landmark: 'near Temple', area: 'Model Town', lat: 25.43, lng: 81.84, product: 'jar', jarsPerDay: 2, schedule: { type: 'daily' }, notes: 'Call after 5 PM' })
+        .expect(201)
+    ).body;
+    assert.match(res.customer.id, /^RO-\d{4}$/);
+    assert.equal(res.customer.status, 'pending');
+    assert.equal(res.customer.address, 'H.No. 5, Model Town, near Temple');
+    assert.deepEqual(res.customer.location, { lat: 25.43, lng: 81.84 });
+    newToken = res.token;
+    newId = res.customer.id;
+    await api.post('/v1/auth/customer/register').set(h(signupToken)).send({ name: 'Again', address: 'H.No. 5, Model Town', area: 'Model Town' }).expect(409);
+    assert.equal((await api.get('/v1/customer/me').set(h(newToken)).expect(200)).body.status, 'pending');
+    // ordering waits for approval
+    await api.post('/v1/customer/event-orders').set(h(newToken)).send({ eventType: 'Party', eventDate: dates.addDays(today(), 3), deliveryTime: '10:00', quantity: 5 }).expect(403);
+    // not on any delivery list yet
+    const list = (await api.get('/v1/delivery/today').set(auth('delivery')).expect(200)).body;
+    assert.ok(!list.stops.some((s) => s.customer.id === newId));
+  });
+
+  test('office sees and approves it → deliveries start, the customer sees the full app', async () => {
+    const pending = (await api.get('/v1/admin/customers?signup=pending').set(auth('admin')).expect(200)).body;
+    assert.ok(pending.items.some((c) => c.id === newId && c.notes === 'Call after 5 PM'));
+    assert.ok((await api.get('/v1/admin/dashboard').set(auth('admin')).expect(200)).body.pendingSignups >= 1);
+    const ok = (await api.post(`/v1/admin/customers/${newId}/approve`).set(auth('admin')).send({ routeId: 1, deposit: 450, jarsIssued: 3 }).expect(200)).body;
+    assert.equal(ok.status, 'active');
+    assert.equal((await api.get('/v1/customer/me').set(h(newToken)).expect(200)).body.status, 'active');
+    const list = (await api.get('/v1/delivery/today').set(auth('delivery')).expect(200)).body;
+    assert.ok(list.stops.some((s) => s.customer.id === newId));
+    await api.post(`/v1/admin/customers/${newId}/approve`).set(auth('admin')).send({}).expect(422);
+  });
+
+  test('a rejected sign-up still logs in and sees the reason; closed connections cannot log in', async () => {
+    await api.post('/v1/auth/customer/otp').send({ mobile: '9000000002' }).expect(200);
+    const t = (await api.post('/v1/auth/customer/verify').send({ mobile: '9000000002', otp: '1234' }).expect(200)).body.token;
+    const c = (await api.post('/v1/auth/customer/register').set(h(t)).send({ name: 'Door Wala', address: 'Far Village Road', area: 'Outside City' }).expect(201)).body;
+    await api.post(`/v1/admin/customers/${c.customer.id}/reject`).set(auth('admin')).send({ note: 'We do not deliver there yet' }).expect(200);
+    const me = (await api.get('/v1/customer/me').set(h(c.token)).expect(200)).body;
+    assert.equal(me.status, 'rejected');
+    assert.equal(me.signupNote, 'We do not deliver there yet');
+    // office closes an existing connection → that number cannot log in
+    await api.patch('/v1/admin/customers/RO-0030').set(auth('admin')).send({ active: false }).expect(200);
+    await api.post('/v1/auth/customer/otp').send({ mobile: '9876500030' }).expect(403);
   });
 });

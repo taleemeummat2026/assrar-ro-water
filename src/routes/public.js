@@ -22,6 +22,20 @@ publicRouter.get('/company', async (_req, res) => {
   });
 });
 
+/** Areas we deliver to (from the routes), for the sign-up form. */
+publicRouter.get('/areas', async (_req, res) => {
+  const routes = await db.q('SELECT areas FROM routes WHERE active = 1');
+  const set = new Set();
+  for (const r of routes) {
+    try {
+      for (const a of JSON.parse(r.areas ?? '[]')) if (a) set.add(String(a));
+    } catch {
+      // ignore bad rows
+    }
+  }
+  res.json([...set].sort((a, b) => a.localeCompare(b)));
+});
+
 /** New connection request — shows up in the Super Admin panel. */
 publicRouter.post('/enquiries', async (req, res) => {
   const input = parse(

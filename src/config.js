@@ -39,7 +39,7 @@ export const config = {
   },
 
   jwtSecret: required('JWT_SECRET', 'dev-only-secret-change-me'),
-  tokenDays: { customer: 90, delivery: 30, admin: 1 },
+  tokenDays: { customer: 90, delivery: 30, admin: 1, signup: 1 },
 
   otp: {
     // TEST_OTP=1234 → every customer logs in with 1234 and no SMS is sent (testing phase only — remove before launch).

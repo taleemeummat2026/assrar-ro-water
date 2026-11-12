@@ -24,6 +24,14 @@ export async function migrate({ log = console.log } = {}) {
     // Upgrades for databases created by an earlier version (safe to repeat).
     await conn.query("ALTER TABLE payments MODIFY mode ENUM('cash', 'upi', 'online') NOT NULL");
     await conn.query("ALTER TABLE payments MODIFY recorded_by_type ENUM('admin', 'delivery', 'online') NOT NULL");
+    // New columns (works on MySQL and MariaDB — neither supports the same "ADD COLUMN IF NOT EXISTS").
+    const addColumn = async (table, column, definition) => {
+      const [[c]] = await conn.query('SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?', [database, table, column]);
+      if (!Number(c.n)) await conn.query(`ALTER TABLE \`${table}\` ADD COLUMN ${column} ${definition}`);
+    };
+    await addColumn('customers', 'notes', 'VARCHAR(500) NULL');
+    await addColumn('customers', 'signup_status', "ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved'");
+    await addColumn('customers', 'signup_note', 'VARCHAR(300) NULL');
     log(`Tables ready in database "${database}".`);
 
     const [[company]] = await conn.query('SELECT id FROM company WHERE id = 1');

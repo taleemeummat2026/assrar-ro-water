@@ -23,9 +23,11 @@ function readToken(req) {
 export async function requireCustomer(req, _res, next) {
   const t = readToken(req);
   if (t.role !== 'customer') throw new HttpError(401, 'Please log in again.');
-  const row = await db.one('SELECT id, name FROM customers WHERE id = ? AND active = 1', [t.sub]);
-  if (!row) throw new HttpError(401, 'Your connection is not active. Please contact the office.');
+  const row = await db.one('SELECT id, name, active, signup_status FROM customers WHERE id = ?', [t.sub]);
+  // New sign-ups (pending / not approved) may log in to see their status; closed connections may not.
+  if (!row || (!row.active && row.signup_status === 'approved')) throw new HttpError(401, 'Your connection is not active. Please contact the office.');
   req.customerId = row.id;
+  req.customerStatus = row.signup_status === 'approved' ? 'active' : row.signup_status;
   req.actor = { type: 'customer', id: row.id, name: row.name };
   next();
 }
@@ -61,4 +63,17 @@ export function requireAdmin(...roles) {
     req.actor = { type: 'admin', id: String(row.id), name: row.name };
     next();
   };
+}
+
+/** OTP checked for a mobile number that is not a customer yet → it may register (req.signupMobile). */
+export function requireSignup(req, _res, next) {
+  const t = readToken(req);
+  if (t.role !== 'signup') throw new HttpError(401, 'Please log in again.');
+  req.signupMobile = t.sub;
+  next();
+}
+
+/** Ordering, requests and payments need an approved connection. */
+export function ensureApproved(req) {
+  if (req.customerStatus !== 'active') throw new HttpError(403, 'Your connection is waiting for approval from the office.');
 }

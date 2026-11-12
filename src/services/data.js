@@ -59,6 +59,9 @@ export function mapCustomer(r) {
     jarsIssued: r.jars_issued,
     joinedOn: r.joined_on,
     active: !!r.active,
+    status: r.signup_status === 'pending' ? 'pending' : r.signup_status === 'rejected' ? 'rejected' : r.active ? 'active' : 'inactive',
+    signupNote: r.signup_note,
+    notes: r.notes,
     deliveryBoyId: r.route_boy_id ? String(r.route_boy_id) : '',
   });
 }

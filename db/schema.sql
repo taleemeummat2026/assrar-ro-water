@@ -82,6 +82,9 @@ CREATE TABLE IF NOT EXISTS customers (
   deposit DECIMAL(10, 2) NOT NULL DEFAULT 0,
   jars_issued INT NOT NULL DEFAULT 0,
   opening_balance DECIMAL(10, 2) NOT NULL DEFAULT 0, -- dues carried over from the old register
+  notes VARCHAR(500) NULL, -- from the customer's own sign-up form
+  signup_status ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved', -- app sign-ups wait for the office
+  signup_note VARCHAR(300) NULL,
   joined_on DATE NOT NULL,
   active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

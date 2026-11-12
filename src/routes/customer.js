@@ -3,11 +3,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db.js';
 import { logActivity } from '../lib/activity.js';
-import { requireCustomer } from '../lib/auth.js';
+import { ensureApproved, requireCustomer } from '../lib/auth.js';
 import { buildDays, buildMonthDays, lastNDays, pausedUntil, summarizeMonth } from '../lib/billing.js';
 import { addDays, monthOf, todayISO } from '../lib/dates.js';
 import { badRequest, notFound, parse, zDate, zMonth } from '../lib/http.js';
-import { compact, customerAccount, EVENT_SELECT, getCustomerRow, mapEventOrder, mapNotification, mapRequest } from '../services/data.js';
+import { compact, customerAccount, EVENT_SELECT, getCustomerRow, mapCustomer, mapEventOrder, mapNotification, mapRequest } from '../services/data.js';
 import { cancelEventOrder, createEventOrder, eventOrderSchema, getEventOrder, requireOrder } from '../services/events.js';
 import { mapOnline, settleOnlinePayment, startOnlinePayment } from '../services/online.js';
 import { razorpayEnabled } from '../lib/razorpay.js';
@@ -21,6 +21,11 @@ async function account(req) {
   const row = await getCustomerRow(req.customerId);
   return { today, row, acc: await customerAccount(row, today) };
 }
+
+/** The logged-in customer (incl. sign-up status: pending / rejected / active). */
+customerRouter.get('/me', async (req, res) => {
+  res.json(mapCustomer(await getCustomerRow(req.customerId)));
+});
 
 customerRouter.get('/dashboard', async (req, res) => {
   const { today, row, acc } = await account(req);
@@ -84,6 +89,7 @@ const newRequest = z.discriminatedUnion('type', [
 ]);
 
 customerRouter.post('/requests', async (req, res) => {
+  ensureApproved(req);
   const input = parse(newRequest, req.body);
   const today = todayISO();
   if (input.type === 'extra_jar' && input.date < today) throw badRequest('Pick today or a later date.');
@@ -130,6 +136,7 @@ customerRouter.get('/event-orders', async (req, res) => {
 });
 
 customerRouter.post('/event-orders', async (req, res) => {
+  ensureApproved(req);
   const input = parse(eventOrderSchema, req.body);
   const row = await getCustomerRow(req.customerId);
   res.status(201).json(await createEventOrder(row, input, 'customer', req.actor));
@@ -145,6 +152,7 @@ customerRouter.post('/event-orders/:id/cancel', async (req, res) => {
 /* ---------------- Online payment (Razorpay) ---------------- */
 
 customerRouter.post('/online-payments', async (req, res) => {
+  ensureApproved(req);
   const input = parse(
     z.object({
       purpose: z.enum(['dues', 'event_order']).default('dues'),
