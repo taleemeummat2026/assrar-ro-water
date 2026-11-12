@@ -1,0 +1,36 @@
+{
+  "name": "ashhar-ro-water-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API for the Ashhar RO Water customer app, delivery app and Super Admin web app (Node.js + MySQL)",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:migrate": "node db/migrate.js",
+    "db:seed-demo": "node db/seed-demo.js",
+    "db:clear-demo": "node db/clear-demo.js",
+    "db:backup": "node db/backup.js",
+    "admin:create": "node db/create-admin.js",
+    "test": "node --test --test-timeout=900000 test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.5.0",
+    "mysql2": "^3.24.6",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "mysql-memory-server": "^1.18.0",
+    "supertest": "^7.3.2"
+  }
+}
