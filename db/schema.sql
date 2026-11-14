@@ -278,6 +278,7 @@ CREATE TABLE IF NOT EXISTS online_payments (
   event_order_id BIGINT UNSIGNED NULL,
   reference_id VARCHAR(40) NOT NULL,
   link_id VARCHAR(40) NULL,
+  order_id VARCHAR(40) NULL, -- in-app checkout (Razorpay Orders)
   short_url VARCHAR(255) NULL,
   return_url VARCHAR(255) NULL,
   status ENUM('created', 'paid', 'expired', 'cancelled') NOT NULL DEFAULT 'created',
@@ -288,6 +289,7 @@ CREATE TABLE IF NOT EXISTS online_payments (
   paid_at DATETIME(3) NULL,
   UNIQUE KEY uq_online_ref (reference_id),
   UNIQUE KEY uq_online_link (link_id),
+  UNIQUE KEY uq_online_order (order_id),
   KEY ix_online_customer (customer_id, created_at),
   CONSTRAINT fk_online_customer FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

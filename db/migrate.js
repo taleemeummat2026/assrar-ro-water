@@ -32,6 +32,7 @@ export async function migrate({ log = console.log } = {}) {
     await addColumn('customers', 'notes', 'VARCHAR(500) NULL');
     await addColumn('customers', 'signup_status', "ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved'");
     await addColumn('customers', 'signup_note', 'VARCHAR(300) NULL');
+    await addColumn('online_payments', 'order_id', 'VARCHAR(40) NULL UNIQUE');
     log(`Tables ready in database "${database}".`);
 
     const [[company]] = await conn.query('SELECT id FROM company WHERE id = 1');

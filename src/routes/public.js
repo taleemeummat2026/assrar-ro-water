@@ -5,7 +5,7 @@ import { db } from '../db.js';
 import { logActivity } from '../lib/activity.js';
 import { parse, zMobile } from '../lib/http.js';
 import { verifyWebhook } from '../lib/razorpay.js';
-import { findByLink, settleOnlinePayment } from '../services/online.js';
+import { findByLink, findByOrder, settleOnlinePayment } from '../services/online.js';
 
 export const publicRouter = Router();
 
@@ -90,9 +90,15 @@ export async function razorpayWebhook(req, res) {
   } catch {
     return res.status(400).json({ message: 'Invalid JSON' });
   }
+  const kind = String(event?.event ?? '');
   const linkId = event?.payload?.payment_link?.entity?.id;
-  if (String(event?.event ?? '').startsWith('payment_link.') && linkId) {
+  // In-app checkout: payment.captured / order.paid — catches payments where the app closed before confirming.
+  const orderId = event?.payload?.order?.entity?.id ?? event?.payload?.payment?.entity?.order_id;
+  if (kind.startsWith('payment_link.') && linkId) {
     const op = await findByLink(linkId);
+    if (op) await settleOnlinePayment(op);
+  } else if ((kind === 'payment.captured' || kind === 'order.paid') && orderId) {
+    const op = await findByOrder(orderId);
     if (op) await settleOnlinePayment(op);
   }
   res.json({ ok: true });

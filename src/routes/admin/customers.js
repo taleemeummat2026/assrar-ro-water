@@ -85,6 +85,8 @@ export async function createCustomer(input, actor, { pending = false } = {}) {
       ],
     );
     if (input.enquiryId) await t.q("UPDATE enquiries SET status = 'converted', customer_id = ? WHERE id = ?", [id, input.enquiryId]);
+    // Earlier connection requests from the same number (website / app form) now belong to this customer.
+    await t.q("UPDATE enquiries SET status = 'converted', customer_id = ? WHERE mobile = ? AND status IN ('new', 'contacted')", [id, input.mobile]);
     if (pending) {
       await t.q("UPDATE customers SET active = 0, signup_status = 'pending', notes = ? WHERE id = ?", [input.notes || null, id]);
       await notify(id, 'info', 'Request received', `Your Customer ID is ${id}. Our team will call you to confirm your plan, deposit and the day deliveries start.`, t);

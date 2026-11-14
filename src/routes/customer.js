@@ -9,8 +9,8 @@ import { addDays, monthOf, todayISO } from '../lib/dates.js';
 import { badRequest, notFound, parse, zDate, zMonth } from '../lib/http.js';
 import { compact, customerAccount, EVENT_SELECT, getCustomerRow, mapCustomer, mapEventOrder, mapNotification, mapRequest } from '../services/data.js';
 import { cancelEventOrder, createEventOrder, eventOrderSchema, getEventOrder, requireOrder } from '../services/events.js';
-import { mapOnline, settleOnlinePayment, startOnlinePayment } from '../services/online.js';
-import { razorpayEnabled } from '../lib/razorpay.js';
+import { confirmCheckout, mapOnline, settleOnlinePayment, startCheckout, startOnlinePayment } from '../services/online.js';
+import { checkoutEnabled } from '../lib/razorpay.js';
 import { removePushToken, savePushToken } from '../lib/push.js';
 
 export const customerRouter = Router();
@@ -44,7 +44,7 @@ customerRouter.get('/dashboard', async (req, res) => {
       deliveryBoy: boy ? { id: String(boy.id), name: boy.name, mobile: boy.mobile } : null,
       unreadNotifications: Number(unread.n),
       pausedUntil: pausedUntil(acc.requests, today) ?? pausedUntil(acc.requests, addDays(today, 1)),
-      onlinePayments: razorpayEnabled(),
+      onlinePayments: checkoutEnabled(),
       upcomingEventOrders: acc.eventOrders.filter((o) => (o.status === 'pending' || o.status === 'assigned') && o.eventDate >= today).length,
     }),
   );
@@ -168,6 +168,34 @@ customerRouter.post('/online-payments', async (req, res) => {
     input.amount = acc.dues;
   }
   res.status(201).json(await startOnlinePayment(row, input));
+});
+
+/** In-app checkout: returns the Razorpay Order the app opens in the native checkout sheet. */
+customerRouter.post('/online-payments/checkout', async (req, res) => {
+  ensureApproved(req);
+  const input = parse(
+    z.object({
+      purpose: z.enum(['dues', 'event_order']).default('dues'),
+      amount: z.coerce.number().positive().optional(),
+      eventOrderId: z.coerce.number().int().positive().optional(),
+    }),
+    req.body,
+  );
+  const row = await getCustomerRow(req.customerId);
+  if (input.purpose === 'dues' && !input.amount) {
+    const { acc } = await account(req);
+    input.amount = acc.dues;
+  }
+  res.status(201).json(await startCheckout(row, input));
+});
+
+/** The app sends the checkout result; the server verifies it with Razorpay before recording the payment. */
+customerRouter.post('/online-payments/:id/confirm', async (req, res) => {
+  const input = parse(
+    z.object({ paymentId: z.string().trim().min(1).max(40), orderId: z.string().trim().min(1).max(40), signature: z.string().trim().min(1).max(128) }),
+    req.body,
+  );
+  res.json(await confirmCheckout(req.customerId, { id: req.params.id, ...input }));
 });
 
 /** The app checks this when the customer comes back from the payment page. */
