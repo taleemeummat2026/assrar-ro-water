@@ -31,7 +31,7 @@ npm start                   # API on http://localhost:4000  (health check: /heal
 | `TEST_OTP` | `1234` while testing: every customer logs in with 1234 and no SMS is sent. **Remove before launch.** |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Razorpay keys for online payment (see section 4b). Empty = online payment hidden |
 | `PUSH_ENABLED`, `EXPO_ACCESS_TOKEN` | Push notifications (on by default; the access token only if Expo “enhanced security” is on) |
-| `OTP_TEST_NUMBERS` | e.g. `9876500001:1234` — a fixed OTP for the Google Play reviewer only |
+| `OTP_TEST_NUMBERS` | `9999999999:1234` — fixed OTP for the Google Play reviewer only (no SMS). **Keep it on the live server after launch.** Create the review accounts with `npm run review:account` (run it again after `db:clear-demo`). |
 
 Never commit `.env` (it is in `.gitignore`).
 
