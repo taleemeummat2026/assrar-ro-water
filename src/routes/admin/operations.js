@@ -338,17 +338,33 @@ operationsRouter.post('/reminders/dues', accounts, async (req, res) => {
   res.json({ count: sent.length, customers: sent });
 });
 
-/* ---------------- New connection enquiries ---------------- */
+/* ---------------- New connection enquiries + Contact Us messages ---------------- */
 
 operationsRouter.get('/enquiries', accounts, async (req, res) => {
-  const { status } = parse(z.object({ status: z.enum(['new', 'contacted', 'converted', 'closed']).optional() }), req.query);
-  const rows = await db.q(`SELECT * FROM enquiries ${status ? 'WHERE status = ?' : ''} ORDER BY created_at DESC LIMIT 500`, status ? [status] : []);
+  const { status, kind } = parse(
+    z.object({ status: z.enum(['new', 'contacted', 'converted', 'closed']).optional(), kind: z.enum(['connection', 'contact']).optional() }),
+    req.query,
+  );
+  const where = [];
+  const params = [];
+  if (status) {
+    where.push('status = ?');
+    params.push(status);
+  }
+  if (kind) {
+    where.push('kind = ?');
+    params.push(kind);
+  }
+  const rows = await db.q(`SELECT * FROM enquiries ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT 500`, params);
   res.json(
     rows.map((r) => ({
       id: String(r.id),
       name: r.name,
       mobile: r.mobile,
-      address: r.address,
+      kind: r.kind ?? 'connection',
+      email: r.email ?? undefined,
+      subject: r.subject ?? undefined,
+      address: r.address ?? '',
       area: r.area,
       product: r.product,
       jarsPerDay: r.jars_per_day,

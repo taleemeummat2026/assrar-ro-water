@@ -116,6 +116,19 @@ describe('customer app', () => {
     await api.post('/v1/public/enquiries').send({ name: 'Test Person', mobile: '9811111111', address: 'H.No. 1, Model Town', area: 'Model Town', product: 'jar', jarsPerDay: 1, schedule: 'daily' }).expect(201);
     await api.post('/v1/public/enquiries').send({ name: 'X', mobile: '1', address: '' }).expect(422);
   });
+
+  test('website contact form needs no login; bots filling the hidden field are ignored', async () => {
+    await api
+      .post('/v1/public/contact')
+      .send({ name: 'Contact Person', mobile: '9822222222', email: 'person@example.com', subject: 'Billing / payment', message: 'Please send my last bill again.' })
+      .expect(201);
+    await api.post('/v1/public/contact').send({ name: 'No Email', mobile: '9833333333', email: '', message: 'Do you deliver on Sunday?' }).expect(201);
+    await api.post('/v1/public/contact').send({ name: 'Bad', mobile: '9822222222', email: 'not-an-email', message: 'hello there' }).expect(422);
+    await api.post('/v1/public/contact').send({ name: 'Bad', mobile: '9822222222', message: 'hi' }).expect(422);
+    // Spam trap: accepted (so the bot learns nothing) but not saved.
+    await api.post('/v1/public/contact').send({ name: 'Spam Bot', mobile: '9844444444', message: 'buy cheap things', website: 'http://spam.example' }).expect(201);
+    await api.post('/v1/public/enquiries').send({ name: 'Spam Bot', mobile: '9844444444', address: 'Spam street 1', website: 'x' }).expect(201);
+  });
 });
 
 describe('delivery app', () => {
@@ -213,6 +226,28 @@ describe('super admin', () => {
     assert.ok(d.outstanding.total > 0);
     assert.ok(d.byDeliveryBoy.length === 2);
     assert.ok(d.notUpdated.length === d.deliveries.pending);
+  });
+
+  test('sees website enquiries and contact messages, filtered by kind', async () => {
+    const all = (await api.get('/v1/admin/enquiries').set(auth('admin')).expect(200)).body;
+    assert.ok(all.some((e) => e.name === 'Test Person' && e.kind === 'connection'));
+    assert.ok(!all.some((e) => e.name === 'Spam Bot'));
+
+    const contact = (await api.get('/v1/admin/enquiries?kind=contact').set(auth('admin')).expect(200)).body;
+    assert.equal(contact.length, 2);
+    const msg = contact.find((e) => e.name === 'Contact Person');
+    assert.equal(msg.email, 'person@example.com');
+    assert.equal(msg.subject, 'Billing / payment');
+    assert.equal(msg.message, 'Please send my last bill again.');
+    assert.equal(msg.source, 'website');
+    assert.equal(msg.status, 'new');
+
+    const connections = (await api.get('/v1/admin/enquiries?kind=connection&status=new').set(auth('admin')).expect(200)).body;
+    assert.ok(connections.length >= 1 && connections.every((e) => e.kind === 'connection'));
+
+    await api.patch(`/v1/admin/enquiries/${msg.id}`).set(auth('admin')).send({ status: 'contacted' }).expect(200);
+    const after = (await api.get('/v1/admin/enquiries?kind=contact&status=contacted').set(auth('admin')).expect(200)).body;
+    assert.deepEqual(after.map((e) => e.id), [msg.id]);
   });
 
   test('adds a customer with the next Customer ID and default price', async () => {

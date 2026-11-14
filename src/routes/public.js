@@ -1,9 +1,11 @@
 /** No login needed: new connection enquiries (app + website) and company details. */
 import { Router } from 'express';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { db } from '../db.js';
 import { logActivity } from '../lib/activity.js';
 import { parse, zMobile } from '../lib/http.js';
+import { rateLimit } from '../lib/rateLimit.js';
 import { verifyWebhook } from '../lib/razorpay.js';
 import { findByLink, findByOrder, settleOnlinePayment } from '../services/online.js';
 
@@ -36,8 +38,15 @@ publicRouter.get('/areas', async (_req, res) => {
   res.json([...set].sort((a, b) => a.localeCompare(b)));
 });
 
+/** Website forms: at most 5 submissions per 10 minutes from one address. */
+const formLimit = rateLimit({ windowMs: 10 * 60_000, max: config.isProduction ? 5 : 1000 });
+
+/** Spam bots fill every field; people never see the hidden "website" field. Pretend success and save nothing. */
+const isBot = (body) => typeof body?.website === 'string' && body.website.trim() !== '';
+
 /** New connection request — shows up in the Super Admin panel. */
-publicRouter.post('/enquiries', async (req, res) => {
+publicRouter.post('/enquiries', formLimit, async (req, res) => {
+  if (isBot(req.body)) return res.status(201).json({ ok: true });
   const input = parse(
     z.object({
       name: z.string().trim().min(2, 'Enter your name').max(100),
@@ -57,6 +66,30 @@ publicRouter.post('/enquiries', async (req, res) => {
     [input.name, input.mobile, input.address, input.area || null, input.product, input.jarsPerDay, input.schedule, input.message || null, input.source],
   );
   await logActivity({ type: 'system', name: `Enquiry (${input.source})` }, 'enquiry.created', 'enquiry', String(r.insertId), { name: input.name, mobile: input.mobile });
+  res.status(201).json({ ok: true });
+});
+
+/** Website "Contact Us" message — listed with the enquiries in the Super Admin panel. */
+publicRouter.post('/contact', formLimit, async (req, res) => {
+  if (isBot(req.body)) return res.status(201).json({ ok: true });
+  const input = parse(
+    z.object({
+      name: z.string().trim().min(2, 'Enter your name').max(100),
+      mobile: zMobile,
+      email: z.union([z.literal(''), z.string().trim().email('Enter a valid email address').max(120)]).optional(),
+      subject: z.string().trim().max(120).optional(),
+      message: z.string().trim().min(5, 'Write your message').max(500),
+    }),
+    req.body,
+  );
+  const r = await db.q("INSERT INTO enquiries (name, mobile, email, subject, message, source, kind) VALUES (?, ?, ?, ?, ?, 'website', 'contact')", [
+    input.name,
+    input.mobile,
+    input.email || null,
+    input.subject || null,
+    input.message,
+  ]);
+  await logActivity({ type: 'system', name: 'Contact form (website)' }, 'contact.created', 'enquiry', String(r.insertId), { name: input.name, mobile: input.mobile });
   res.status(201).json({ ok: true });
 });
 

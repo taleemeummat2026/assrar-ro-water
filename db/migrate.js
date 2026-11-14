@@ -33,6 +33,11 @@ export async function migrate({ log = console.log } = {}) {
     await addColumn('customers', 'signup_status', "ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved'");
     await addColumn('customers', 'signup_note', 'VARCHAR(300) NULL');
     await addColumn('online_payments', 'order_id', 'VARCHAR(40) NULL UNIQUE');
+    // Website Contact Us messages live next to new connection requests.
+    await addColumn('enquiries', 'kind', "ENUM('connection', 'contact') NOT NULL DEFAULT 'connection'");
+    await addColumn('enquiries', 'email', 'VARCHAR(120) NULL');
+    await addColumn('enquiries', 'subject', 'VARCHAR(120) NULL');
+    await conn.query('ALTER TABLE enquiries MODIFY address VARCHAR(255) NULL');
     log(`Tables ready in database "${database}".`);
 
     const [[company]] = await conn.query('SELECT id FROM company WHERE id = 1');
