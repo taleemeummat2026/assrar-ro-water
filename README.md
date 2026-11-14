@@ -25,7 +25,7 @@ npm start                   # API on http://localhost:4000  (health check: /heal
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Your MySQL database details (Hostinger → Databases) |
 | `JWT_SECRET` | Long random text — `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
 | `ADMIN_MOBILE`, `ADMIN_PASSWORD`, `ADMIN_NAME` | First Owner login for the admin panel (remove the password after the first `db:migrate`) |
-| `PUBLIC_URL` | Address of this API, e.g. `https://api.ashharrowater.in` (used for photo links) |
+| `PUBLIC_URL` | Address of this API, e.g. `https://api.ashharrowater.com` (used for photo links) |
 | `CORS_ORIGINS` | Admin panel and website addresses |
 | `SMS_PROVIDER`, `SMS_URL_TEMPLATE` | Your SMS company for OTPs and reminders (see `.env.example`) |
 | `TEST_OTP` | `1234` while testing: every customer logs in with 1234 and no SMS is sent. **Remove before launch.** |
