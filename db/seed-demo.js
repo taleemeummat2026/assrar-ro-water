@@ -11,7 +11,7 @@ import { db, pool, tx } from '../src/db.js';
 import { buildBills, extraRequestedOn, isPausedOn, isScheduled } from '../src/lib/billing.js';
 import { addDays, addMonths, monthOf, todayISO, toSqlDateTime } from '../src/lib/dates.js';
 
-const TABLES = ['activity_log', 'notifications', 'sync_receipts', 'online_payments', 'event_orders', 'payments', 'delivery_entries', 'requests', 'enquiries', 'otp_codes', 'jar_stock', 'route_covers', 'customers', 'routes', 'delivery_boys', 'job_runs'];
+const TABLES = ['activity_log', 'notifications', 'sync_receipts', 'online_payments', 'event_orders', 'payments', 'delivery_entries', 'requests', 'enquiries', 'otp_codes', 'jar_stock', 'route_covers', 'location_points', 'delivery_locations', 'customers', 'routes', 'delivery_boys', 'job_runs'];
 
 function rng(key) {
   let a = 2166136261;

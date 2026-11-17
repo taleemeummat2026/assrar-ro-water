@@ -2,12 +2,12 @@
  * Background jobs, checked every 30 minutes while the server runs:
  *  - daily database backup (backups/YYYY-MM-DD.sql.gz, kept BACKUP_KEEP_DAYS days)
  *  - on the 1st of the month: "bill ready" notification to every customer for last month
- *  - cleanup of expired OTPs and old sync receipts
+ *  - cleanup of expired OTPs, old sync receipts and delivery-boy paths older than LOCATION_KEEP_DAYS
  */
 import { config } from './config.js';
 import { db } from './db.js';
 import { notify } from './lib/activity.js';
-import { addMonths, formatMonth, monthOf, todayISO } from './lib/dates.js';
+import { addDays, addMonths, formatMonth, monthOf, todayISO } from './lib/dates.js';
 import { backupDatabase } from '../db/backup.js';
 
 async function once(job, period, fn) {
@@ -38,6 +38,7 @@ export async function runJobs() {
     if (today.endsWith('-01')) await once('bill-notices', monthOf(today), () => monthlyBillNotices(today));
     await db.q('DELETE FROM otp_codes WHERE expires_at < UTC_TIMESTAMP() - INTERVAL 1 DAY');
     await db.q('DELETE FROM sync_receipts WHERE created_at < UTC_TIMESTAMP() - INTERVAL 60 DAY');
+    await db.q('DELETE FROM location_points WHERE date < ?', [addDays(today, -config.tracking.keepDays)]);
   } catch (e) {
     console.error('[jobs] failed:', e);
   }

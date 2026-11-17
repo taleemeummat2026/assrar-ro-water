@@ -10,6 +10,7 @@ import { upload } from '../lib/uploads.js';
 import { removePushToken, savePushToken } from '../lib/push.js';
 import { buildStops, CUSTOMER_SELECT, EVENT_SELECT, getCustomerRow, mapEntry, mapEventOrder, mapPayment, todayList } from '../services/data.js';
 import { deliverEventOrder, getEventOrder, requireOrder } from '../services/events.js';
+import { isReviewAccount, saveLocations, setDuty } from '../services/tracking.js';
 
 export const deliveryRouter = Router();
 deliveryRouter.use(requireDelivery);
@@ -63,6 +64,11 @@ const entrySchema = z.object({
   emptiesCollected: z.coerce.number().int().min(0).max(100),
   remarks: z.string().trim().max(300).optional().nullable(),
   recordedAt: z.string().optional(),
+  // Where the phone was when the entry was saved (sent while the delivery boy is on duty).
+  location: z
+    .object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().min(0).max(100_000).nullable().optional() })
+    .nullable()
+    .optional(),
 });
 
 /** Saves today's status for a customer. JSON, or multipart with `data` (JSON) + `photo`. */
@@ -87,18 +93,20 @@ deliveryRouter.put('/entries', upload.single('photo'), async (req, res) => {
   if (isDelivery && input.jarsDelivered < 1) throw badRequest('Enter how many jars were delivered.');
   const photoUrl = req.file ? `/uploads/entries/${req.file.filename}` : null;
   const boy = req.boy;
+  const loc = isReviewAccount(boy.mobile) ? null : input.location; // store reviewers' positions never
 
   const saved = await tx(async (t) => {
     const before = await t.one('SELECT * FROM delivery_entries WHERE customer_id = ? AND date = ? FOR UPDATE', [row.id, input.date]);
     await t.q(
       `INSERT INTO delivery_entries
          (customer_id, date, status, jars_delivered, empties_collected, rate_per_jar, remarks, photo_url,
-          delivery_boy_id, delivery_boy_name, client_id, recorded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          delivery_boy_id, delivery_boy_name, client_id, recorded_at, lat, lng, location_accuracy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE status = VALUES(status), jars_delivered = VALUES(jars_delivered),
          empties_collected = VALUES(empties_collected), rate_per_jar = VALUES(rate_per_jar), remarks = VALUES(remarks),
          photo_url = COALESCE(VALUES(photo_url), photo_url), delivery_boy_id = VALUES(delivery_boy_id),
-         delivery_boy_name = VALUES(delivery_boy_name), client_id = VALUES(client_id), recorded_at = VALUES(recorded_at)`,
+         delivery_boy_name = VALUES(delivery_boy_name), client_id = VALUES(client_id), recorded_at = VALUES(recorded_at),
+         lat = VALUES(lat), lng = VALUES(lng), location_accuracy = VALUES(location_accuracy)`,
       [
         row.id,
         input.date,
@@ -112,6 +120,9 @@ deliveryRouter.put('/entries', upload.single('photo'), async (req, res) => {
         boy.name,
         input.clientId,
         toSqlDateTime(input.recordedAt ?? new Date()),
+        loc?.lat ?? null,
+        loc?.lng ?? null,
+        loc?.accuracy == null ? null : Math.min(65_535, Math.round(loc.accuracy)),
       ],
     );
     const entry = await t.one('SELECT * FROM delivery_entries WHERE customer_id = ? AND date = ?', [row.id, input.date]);
@@ -210,6 +221,37 @@ deliveryRouter.post('/event-orders/:id/deliver', async (req, res) => {
   res.json(await deliverEventOrder(order, input, req.actor, { boyId: req.boy.id, name: req.boy.name }));
 });
 
+
+/* ---------------- Live location (while on duty) ---------------- */
+
+const pointSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    accuracy: z.number().min(0).max(100_000).nullable().optional(),
+    speed: z.number().max(1_000).nullable().optional(),
+    heading: z.number().max(360).nullable().optional(),
+    recordedAt: z.string().max(40),
+  })
+  .refine((p) => p.lat !== 0 || p.lng !== 0, 'Invalid location');
+
+/** Positions from the phone, oldest first (several at once after a network gap). */
+deliveryRouter.post('/location', async (req, res) => {
+  const { points } = parse(z.object({ points: z.array(pointSchema).min(1).max(500) }), req.body);
+  if (isReviewAccount(req.boy.mobile)) return res.json({ ok: true, saved: 0 });
+  res.json({ ok: true, ...(await saveLocations(req.boy.id, points)) });
+});
+
+/** Start duty / End duty. Optional `point` = the position when the button was pressed. */
+deliveryRouter.post('/duty', async (req, res) => {
+  const input = parse(z.object({ onDuty: z.boolean(), point: pointSchema.optional() }), req.body);
+  if (isReviewAccount(req.boy.mobile)) return res.json({ ok: true, onDuty: input.onDuty });
+  // The end position is saved before going off duty, the start position after going on duty.
+  if (input.point && !input.onDuty) await saveLocations(req.boy.id, [input.point]);
+  await setDuty(req.boy, req.actor, input.onDuty);
+  if (input.point && input.onDuty) await saveLocations(req.boy.id, [input.point]);
+  res.json({ ok: true, onDuty: input.onDuty });
+});
 
 /* ---------------- Push notifications ---------------- */
 

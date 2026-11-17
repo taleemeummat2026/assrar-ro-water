@@ -5,7 +5,7 @@
  */
 import { db, pool, tx } from '../src/db.js';
 
-const TABLES = ['activity_log', 'notifications', 'sync_receipts', 'online_payments', 'event_orders', 'payments', 'delivery_entries', 'requests', 'enquiries', 'otp_codes', 'jar_stock', 'route_covers', 'customers', 'routes', 'delivery_boys', 'job_runs'];
+const TABLES = ['activity_log', 'notifications', 'sync_receipts', 'online_payments', 'event_orders', 'payments', 'delivery_entries', 'requests', 'enquiries', 'otp_codes', 'jar_stock', 'route_covers', 'location_points', 'delivery_locations', 'customers', 'routes', 'delivery_boys', 'job_runs'];
 
 if (!process.argv.includes('--yes')) {
   console.log('This deletes every customer, delivery entry, payment, route and delivery boy.');

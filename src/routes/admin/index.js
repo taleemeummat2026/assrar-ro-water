@@ -13,6 +13,7 @@ import { eventsRouter } from './events.js';
 import { razorpayEnabled } from '../../lib/razorpay.js';
 import { operationsRouter } from './operations.js';
 import { reportsRouter } from './reports.js';
+import { trackingRouter } from './tracking.js';
 
 export const adminRouter = Router();
 const anyAdmin = requireAdmin('manager', 'accounts');
@@ -196,5 +197,6 @@ adminRouter.get('/activity', anyAdmin, async (req, res) => {
 
 adminRouter.use('/customers', customersRouter);
 adminRouter.use('/reports', reportsRouter);
+adminRouter.use('/tracking', trackingRouter);
 adminRouter.use('/', eventsRouter);
 adminRouter.use('/', operationsRouter);

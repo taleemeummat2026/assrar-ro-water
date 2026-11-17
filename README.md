@@ -32,6 +32,7 @@ npm start                   # API on http://localhost:4000  (health check: /heal
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Razorpay keys for online payment (see section 4b). Empty = online payment hidden |
 | `PUSH_ENABLED`, `EXPO_ACCESS_TOKEN` | Push notifications (on by default; the access token only if Expo “enhanced security” is on) |
 | `OTP_TEST_NUMBERS` | `9999999999:1234` — fixed OTP for the Google Play reviewer only (no SMS). **Keep it on the live server after launch.** Create the review accounts with `npm run review:account` (run it again after `db:clear-demo`). |
+| `LOCATION_KEEP_DAYS` | Days of delivery-boy paths kept for the admin's "Route taken" view (default `30`; older days are deleted automatically) |
 
 Never commit `.env` (it is in `.gitignore`).
 
@@ -131,6 +132,7 @@ Roles: **owner** (everything), **manager** (operations), **accounts** (payments,
 | Routes | `GET /routes` · `POST /routes` · `PATCH /routes/:id` · `PUT /routes/:id/order` · `PUT /routes/:id/cover` (leave cover for a day) · `DELETE /routes/:id/cover/:date` |
 | Delivery boys | `GET /delivery-boys` · `POST /delivery-boys` · `PATCH /delivery-boys/:id` (incl. password, active) |
 | Daily monitoring | `GET /entries?date=&routeId=&deliveryBoyId=&kind=` (live status, pending/missed) · `PUT /entries` (correct with `reason`, logged) · `DELETE /entries/:customerId/:date` (with `reason`) |
+| Live tracking (owner, manager) | `GET /tracking/live` — every delivery boy: where he is now, `live` / `no_signal` / `off_duty` / `never`, today's progress, last and next customer, plus today's customer pins · `GET /tracking/:boyId/trail?date=` — path taken that day, distance, and each entry with where it was saved and how far that is from the customer's pin |
 | Requests | `GET /requests?status=&type=` · `POST /requests/:id/decision` `{ decision: approved/rejected/resolved, note }` |
 | Payments | `GET /payments?from=&to=&mode=` · `POST /payments` · `POST /reminders/dues` (in-app + SMS + WhatsApp links) |
 | Event orders | `GET /event-orders?status=` · `POST /event-orders` (phone order) · `POST /event-orders/:id/assign` `{ deliveryBoyId }` · `POST /event-orders/:id/deliver` · `POST /event-orders/:id/reject` · `PATCH /event-orders/:id` `{ emptiesCollected }` |
@@ -149,7 +151,7 @@ npm test
 
 Starts a temporary MySQL 8.4 (downloaded once, ~75 s the first time), loads the demo data and checks the
 customer, delivery and admin flows end to end: billing, jar balance, safe retries, photo upload, roles,
-reports and backup restore.
+reports, backup restore and live tracking.
 
 ## Project layout
 

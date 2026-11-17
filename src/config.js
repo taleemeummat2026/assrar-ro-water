@@ -76,5 +76,9 @@ export const config = {
     dir: env.BACKUP_DIR ?? 'backups',
     keepDays: Number(env.BACKUP_KEEP_DAYS ?? 14),
   },
+  // Live tracking: days of delivery-boy paths kept for the admin's "route taken" view.
+  tracking: {
+    keepDays: Number(env.LOCATION_KEEP_DAYS ?? 30),
+  },
   jobsEnabled: env.JOBS_ENABLED !== 'false',
 };

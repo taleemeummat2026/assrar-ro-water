@@ -307,3 +307,36 @@ CREATE TABLE IF NOT EXISTS push_tokens (
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   KEY ix_push_owner (owner_type, owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Live location of each delivery boy (one row per boy = where he is right now).
+-- Filled by the delivery app every ~30 seconds while he is on duty (Start duty → End duty).
+CREATE TABLE IF NOT EXISTS delivery_locations (
+  delivery_boy_id INT UNSIGNED NOT NULL PRIMARY KEY,
+  on_duty TINYINT(1) NOT NULL DEFAULT 0,
+  duty_started_at DATETIME(3) NULL,
+  duty_ended_at DATETIME(3) NULL,
+  lat DECIMAL(9, 6) NULL,
+  lng DECIMAL(9, 6) NULL,
+  accuracy SMALLINT UNSIGNED NULL, -- metres
+  speed DECIMAL(5, 1) NULL, -- metres per second
+  heading SMALLINT UNSIGNED NULL, -- degrees, 0 = north
+  recorded_at DATETIME(3) NULL, -- when the phone took this fix
+  received_at DATETIME(3) NULL, -- when the server got it
+  CONSTRAINT fk_location_boy FOREIGN KEY (delivery_boy_id) REFERENCES delivery_boys (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The path each delivery boy took through the day (a point every ~20 m, or every 3 minutes when standing).
+-- Days older than LOCATION_KEEP_DAYS are deleted automatically.
+CREATE TABLE IF NOT EXISTS location_points (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  delivery_boy_id INT UNSIGNED NOT NULL,
+  date DATE NOT NULL, -- business day (India time)
+  lat DECIMAL(9, 6) NOT NULL,
+  lng DECIMAL(9, 6) NOT NULL,
+  accuracy SMALLINT UNSIGNED NULL,
+  speed DECIMAL(5, 1) NULL,
+  recorded_at DATETIME(3) NOT NULL,
+  KEY ix_point_boy_day (delivery_boy_id, date, recorded_at),
+  KEY ix_point_date (date),
+  CONSTRAINT fk_point_boy FOREIGN KEY (delivery_boy_id) REFERENCES delivery_boys (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

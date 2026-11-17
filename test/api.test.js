@@ -365,6 +365,101 @@ describe('super admin', () => {
   });
 });
 
+describe('live tracking of delivery boys', () => {
+  const base = { lat: 21.8129, lng: 80.1838 }; // Balaghat
+  const ago = (s) => new Date(Date.now() - s * 1000).toISOString();
+  const rahul = (live) => live.deliveryBoys.find((b) => b.name === 'Rahul Kumar');
+
+  test('nobody is on the map before starting duty', async () => {
+    const live = (await api.get('/v1/admin/tracking/live').set(auth('admin')).expect(200)).body;
+    assert.equal(live.deliveryBoys.length, 2);
+    assert.ok(live.deliveryBoys.every((b) => b.status === 'never' && b.location === null));
+    assert.equal(live.counts.never, 2);
+  });
+
+  test('start duty, then the phone sends its position; the path is thinned', async () => {
+    await api.post('/v1/delivery/duty').set(auth('delivery')).send({ onDuty: true, point: { ...base, accuracy: 8, recordedAt: ago(70) } }).expect(200);
+    const points = [
+      { ...base, accuracy: 6, speed: 0, recordedAt: ago(60) }, // same spot 10 s later → not a new path point
+      { lat: base.lat + 0.00004, lng: base.lng, accuracy: 6, recordedAt: ago(50) }, // 4 m → skipped
+      { lat: base.lat + 0.00135, lng: base.lng, accuracy: 7, speed: 5.5, heading: 2, recordedAt: ago(30) }, // 150 m north
+      { lat: base.lat + 0.0014, lng: base.lng + 0.0001, accuracy: 500, recordedAt: ago(10) }, // rough fix: "where now" only
+    ];
+    const first = (await api.post('/v1/delivery/location').set(auth('delivery')).send({ points }).expect(200)).body;
+    assert.equal(first.saved, 1);
+    // The phone resends after a timeout → nothing saved twice.
+    assert.equal((await api.post('/v1/delivery/location').set(auth('delivery')).send({ points }).expect(200)).body.saved, 0);
+    await api.post('/v1/delivery/location').set(auth('delivery')).send({ points: [] }).expect(422);
+    await api.post('/v1/delivery/location').set(auth('delivery')).send({ points: [{ lat: 0, lng: 0, recordedAt: ago(1) }] }).expect(422);
+    await api.post('/v1/delivery/location').send({ points }).expect(401);
+
+    const live = (await api.get('/v1/admin/tracking/live').set(auth('admin')).expect(200)).body;
+    const me = rahul(live);
+    assert.equal(me.status, 'live');
+    assert.equal(me.onDuty, true);
+    assert.equal(me.location.accuracy, 500);
+    assert.ok(Math.abs(me.location.lat - (base.lat + 0.0014)) < 1e-6);
+    assert.ok(me.ageSeconds <= 20);
+    assert.equal(me.routes.length, 2);
+    assert.ok(me.progress.total > 0 && me.progress.done > 0);
+    assert.ok(me.lastStop?.name, 'last customer he marked today');
+    assert.ok(me.nextStop?.customerId, 'next pending customer');
+    assert.equal(live.counts.live, 1);
+  });
+
+  test('an entry saves where the phone was; the trail shows how far that is from the customer', async () => {
+    const { body } = await api.get('/v1/delivery/today').set(auth('delivery')).expect(200);
+    const id = body.stops.find((s) => !s.entry && !s.paused).customer.id;
+    await pool.query('UPDATE customers SET lat = ?, lng = ? WHERE id = ?', [base.lat, base.lng, id]);
+    await api
+      .put('/v1/delivery/entries')
+      .set(auth('delivery'))
+      .send({ clientId: 'E-loc-0001', customerId: id, date: today(), status: 'delivered', jarsDelivered: 1, emptiesCollected: 1, location: { lat: base.lat + 0.0002, lng: base.lng, accuracy: 9 } })
+      .expect(200);
+
+    const boyId = rahul((await api.get('/v1/admin/tracking/live').set(auth('admin')).expect(200)).body).id;
+    const trail = (await api.get(`/v1/admin/tracking/${boyId}/trail?date=${today()}`).set(auth('admin')).expect(200)).body;
+    assert.equal(trail.points.length, 2); // start + 150 m north
+    assert.ok(trail.distanceKm > 0.14 && trail.distanceKm < 0.16);
+    const entry = trail.entries.find((e) => e.customerId === id);
+    assert.equal(entry.location.accuracy, 9);
+    assert.ok(entry.distanceFromCustomerM >= 20 && entry.distanceFromCustomerM <= 25);
+    assert.ok(trail.entries.length >= 2);
+    assert.equal((await api.get(`/v1/admin/tracking/${boyId}/trail?date=${dates.addDays(today(), -3)}`).set(auth('admin')).expect(200)).body.points.length, 0);
+    await api.get('/v1/admin/tracking/99999/trail').set(auth('admin')).expect(404);
+  });
+
+  test('end duty: shown as off duty with the last place; a late resend does not switch him back on', async () => {
+    await api.post('/v1/delivery/duty').set(auth('delivery')).send({ onDuty: false }).expect(200);
+    await api.post('/v1/delivery/location').set(auth('delivery')).send({ points: [{ ...base, recordedAt: ago(5) }] }).expect(200);
+    const me = rahul((await api.get('/v1/admin/tracking/live').set(auth('admin')).expect(200)).body);
+    assert.equal(me.status, 'off_duty');
+    assert.equal(me.onDuty, false);
+    assert.ok(me.location);
+    const [log] = await pool.query("SELECT action FROM activity_log WHERE action LIKE 'duty.%' ORDER BY id");
+    assert.deepEqual(log.map((r) => r.action), ['duty.started', 'duty.ended']);
+  });
+
+  test('store-review logins (OTP test numbers) are never tracked or shown on the map', async () => {
+    await api.post('/v1/admin/delivery-boys').set(auth('admin')).send({ name: 'Store Reviewer', mobile: '9876500002', password: '1234' }).expect(201);
+    const t = (await api.post('/v1/auth/delivery/login').send({ mobile: '9876500002', password: '1234' }).expect(200)).body.token;
+    const h = { Authorization: `Bearer ${t}` };
+    await api.post('/v1/delivery/duty').set(h).send({ onDuty: true, point: { ...base, recordedAt: ago(5) } }).expect(200);
+    assert.equal((await api.post('/v1/delivery/location').set(h).send({ points: [{ ...base, recordedAt: ago(1) }] }).expect(200)).body.saved, 0);
+    const live = (await api.get('/v1/admin/tracking/live').set(auth('admin')).expect(200)).body;
+    assert.ok(!live.deliveryBoys.some((b) => b.name === 'Store Reviewer'));
+    const [[n]] = await pool.query('SELECT COUNT(*) AS n FROM delivery_locations l JOIN delivery_boys b ON b.id = l.delivery_boy_id WHERE b.mobile = ?', ['9876500002']);
+    assert.equal(Number(n.n), 0);
+    await pool.query("UPDATE delivery_boys SET active = 0 WHERE mobile = '9876500002'"); // keep later tests' counts unchanged
+  });
+
+  test('only Owner and Manager see staff locations', async () => {
+    const t = (await api.post('/v1/auth/admin/login').send({ mobile: '9844444444', password: 'secret12' }).expect(200)).body.token;
+    await api.get('/v1/admin/tracking/live').set({ Authorization: `Bearer ${t}` }).expect(403);
+    await api.get('/v1/admin/tracking/live').set(auth('delivery')).expect(401);
+  });
+});
+
 describe('event orders (wedding / party)', () => {
   const eventDay = () => dates.addDays(today(), 2);
   let orderId;

@@ -38,6 +38,10 @@ export async function migrate({ log = console.log } = {}) {
     await addColumn('enquiries', 'email', 'VARCHAR(120) NULL');
     await addColumn('enquiries', 'subject', 'VARCHAR(120) NULL');
     await conn.query('ALTER TABLE enquiries MODIFY address VARCHAR(255) NULL');
+    // Where the delivery boy's phone was when he saved the entry (live tracking).
+    await addColumn('delivery_entries', 'lat', 'DECIMAL(9, 6) NULL');
+    await addColumn('delivery_entries', 'lng', 'DECIMAL(9, 6) NULL');
+    await addColumn('delivery_entries', 'location_accuracy', 'SMALLINT UNSIGNED NULL');
     log(`Tables ready in database "${database}".`);
 
     const [[company]] = await conn.query('SELECT id FROM company WHERE id = 1');
