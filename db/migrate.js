@@ -42,6 +42,16 @@ export async function migrate({ log = console.log } = {}) {
     await addColumn('delivery_entries', 'lat', 'DECIMAL(9, 6) NULL');
     await addColumn('delivery_entries', 'lng', 'DECIMAL(9, 6) NULL');
     await addColumn('delivery_entries', 'location_accuracy', 'SMALLINT UNSIGNED NULL');
+    // Store-review logins are never tracked — remove anything saved for them before that rule existed.
+    const review = [...config.reviewMobiles];
+    if (review.length) {
+      await conn.query('DELETE p FROM location_points p JOIN delivery_boys b ON b.id = p.delivery_boy_id WHERE b.mobile IN (?)', [review]);
+      await conn.query('DELETE l FROM delivery_locations l JOIN delivery_boys b ON b.id = l.delivery_boy_id WHERE b.mobile IN (?)', [review]);
+      await conn.query(
+        'UPDATE delivery_entries e JOIN delivery_boys b ON b.id = e.delivery_boy_id SET e.lat = NULL, e.lng = NULL, e.location_accuracy = NULL WHERE b.mobile IN (?) AND e.lat IS NOT NULL',
+        [review],
+      );
+    }
     log(`Tables ready in database "${database}".`);
 
     const [[company]] = await conn.query('SELECT id FROM company WHERE id = 1');

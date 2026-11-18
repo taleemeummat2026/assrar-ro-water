@@ -25,10 +25,10 @@ const toMs = (sql) => (sql ? Date.parse(fromSqlDateTime(sql)) : 0);
 const num = (v) => (v === null || v === undefined ? null : Number(v));
 
 /**
- * Store-review logins (OTP_TEST_NUMBERS, e.g. the Google Play reviewer's 9999999999) are not real staff:
+ * Store-review logins (config.reviewMobiles, e.g. the Google Play reviewer's 9999999999) are not real staff:
  * their location is never stored and they are left off the admin map.
  */
-export const isReviewAccount = (mobile) => config.otp.testNumbers.has(String(mobile));
+export const isReviewAccount = (mobile) => config.reviewMobiles.has(String(mobile));
 
 /** Straight-line distance in metres. */
 export function distanceM(a, b) {

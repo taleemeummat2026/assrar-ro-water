@@ -38,6 +38,10 @@ export const config = {
     connectionLimit: Number(env.DB_CONNECTION_LIMIT ?? 10),
   },
 
+  // Store-review logins (e.g. Google Play's 9999999999): never tracked, never on the admin map.
+  // = every OTP_TEST_NUMBERS mobile + REVIEW_MOBILES (default 9999999999, so it works even without OTP_TEST_NUMBERS).
+  reviewMobiles: new Set([...parseTestNumbers(env.OTP_TEST_NUMBERS).keys(), ...(env.REVIEW_MOBILES ?? '9999999999').split(',').map((s) => s.trim()).filter(Boolean)]),
+
   jwtSecret: required('JWT_SECRET', 'dev-only-secret-change-me'),
   tokenDays: { customer: 90, delivery: 30, admin: 1, signup: 1 },
 

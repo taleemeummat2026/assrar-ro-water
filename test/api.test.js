@@ -450,6 +450,16 @@ describe('live tracking of delivery boys', () => {
     assert.ok(!live.deliveryBoys.some((b) => b.name === 'Store Reviewer'));
     const [[n]] = await pool.query('SELECT COUNT(*) AS n FROM delivery_locations l JOIN delivery_boys b ON b.id = l.delivery_boy_id WHERE b.mobile = ?', ['9876500002']);
     assert.equal(Number(n.n), 0);
+    // Positions saved for a review login earlier (before this rule) are removed by the next migration.
+    const [[boy]] = await pool.query("SELECT id FROM delivery_boys WHERE mobile = '9876500002'");
+    await pool.query("INSERT INTO location_points (delivery_boy_id, date, lat, lng, recorded_at) VALUES (?, ?, 40.7, -74.0, UTC_TIMESTAMP(3))", [boy.id, today()]);
+    const { migrate } = await import('../db/migrate.js');
+    await migrate({ log: () => {} });
+    const [[left]] = await pool.query('SELECT COUNT(*) AS n FROM location_points WHERE delivery_boy_id = ?', [boy.id]);
+    assert.equal(Number(left.n), 0);
+    // Google Play's review number counts as a review login even when OTP_TEST_NUMBERS does not list it.
+    const { config } = await import('../src/config.js');
+    assert.ok(config.reviewMobiles.has('9999999999'));
     await pool.query("UPDATE delivery_boys SET active = 0 WHERE mobile = '9876500002'"); // keep later tests' counts unchanged
   });
 
